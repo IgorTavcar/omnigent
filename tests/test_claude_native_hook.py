@@ -1099,10 +1099,8 @@ def test_build_hook_settings_registers_policy_hooks_when_omnigent_server_url_set
     ask_uq_cmd = ask_uq_entry["hooks"][0]["command"]
     assert "ask-user-question" in ask_uq_cmd
     assert str(bridge_dir) in ask_uq_cmd
-    assert ask_uq_entry["hooks"][0]["timeout"] == 86400
-    assert (
-        ask_uq_entry["hooks"][0]["timeout"] == hooks["PermissionRequest"][0]["hooks"][0]["timeout"]
-    )
+    assert ask_uq_entry["hooks"][0]["timeout"] == 30
+    assert hooks["PermissionRequest"][0]["hooks"][0]["timeout"] == 86400
     # Second entry: catch-all policy evaluation hook (no matcher).
     policy_entry = hooks["PreToolUse"][1]
     assert "matcher" not in policy_entry

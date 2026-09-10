@@ -2067,11 +2067,7 @@ def build_hook_settings(
         ask_uq_hook: _JsonObject = {
             "type": "command",
             "command": shlex.join(ask_uq_command_parts),
-            # Wait up to a day for the web answer, matching the PermissionRequest
-            # hook and the server-side park window: a human reading a multi-part
-            # question needs far longer than a few seconds. On timeout the hook
-            # emits no output, so Claude falls back to its TUI picker.
-            "timeout": 86400,
+            "timeout": 30,
         }
         # The ``AskUserQuestion`` matcher only fires if that tool is actually
         # callable. A session launched with ``--disallowedTools AskUserQuestion``
