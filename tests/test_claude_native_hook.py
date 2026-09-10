@@ -1019,6 +1019,10 @@ def test_build_hook_settings_registers_policy_hooks_when_omnigent_server_url_set
     ask_uq_cmd = ask_uq_entry["hooks"][0]["command"]
     assert "ask-user-question" in ask_uq_cmd
     assert str(bridge_dir) in ask_uq_cmd
+    assert ask_uq_entry["hooks"][0]["timeout"] == 86400
+    assert (
+        ask_uq_entry["hooks"][0]["timeout"] == hooks["PermissionRequest"][0]["hooks"][0]["timeout"]
+    )
     # Second entry: catch-all policy evaluation hook (no matcher).
     policy_entry = hooks["PreToolUse"][1]
     assert "matcher" not in policy_entry
@@ -1511,33 +1515,43 @@ def test_ask_user_question_hook_posts_in_every_permission_mode(
         assert hs["updatedInput"]["answers"] == answers, f"Answers not lifted for mode={mode!r}"
 
 
-def test_ask_user_question_hook_posts_and_returns_pre_tool_use_output_in_bypass_mode(
+@pytest.mark.parametrize(
+    "permission_mode",
+    ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "unknown", None],
+)
+def test_ask_user_question_hook_posts_and_returns_pre_tool_use_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    permission_mode: str | None,
 ) -> None:
-    """
-    In bypassPermissions mode the hook posts to Omnigent and returns PreToolUse output.
-
-    In bypass mode ``PermissionRequest`` never fires, so this PreToolUse hook
-    is the only opportunity to surface ``AskUserQuestion`` in the web UI.  It
-    must POST the payload to the Omnigent session's permission-request endpoint, then
-    convert the ``PermissionRequest``-format response to ``PreToolUse`` format
-    (lifting ``decision.updatedInput`` to the top-level ``updatedInput`` field).
-
-    Fails if: Omnigent is not called in bypass mode, the URL targets the wrong session,
-    the response is not converted from PermissionRequest to PreToolUse format,
-    or the user's answers are not surfaced in ``updatedInput``.
-    """
+    """Every permission mode forwards questions and supplies answers without a second prompt."""
     posted: dict[str, object] = {}
-    answers = {"q1": "Option A"}
+    questions = [
+        {
+            "header": "Integration fix",
+            "question": "Should I resolve the integration assertions?",
+            "multiSelect": False,
+            "options": [
+                {
+                    "label": "Decouple run-wiring; investigate triggered totals (Recommended)",
+                    "description": "Apply the safe fixes now. " * 60,
+                },
+                {
+                    "label": "Scope integration to run-wiring only",
+                    "description": "Only assert run state and job ID.",
+                },
+            ],
+        }
+    ]
+    answers = {questions[0]["question"]: questions[0]["options"][0]["label"]}
     server_response = {
         "hookSpecificOutput": {
             "hookEventName": "PermissionRequest",
             "decision": {
                 "behavior": "allow",
                 "updatedInput": {
-                    "questions": [{"question": "Pick one", "options": [{"label": "Option A"}]}],
+                    "questions": questions,
                     "answers": answers,
                 },
             },
@@ -1600,21 +1614,20 @@ def test_ask_user_question_hook_posts_and_returns_pre_tool_use_output_in_bypass_
             )
 
     monkeypatch.setattr(native_policy_hook.httpx, "Client", _FakeHttpxClient)
-    bridge_dir = prepare_bridge_dir("conv_bypass", bridge_id="b2", workspace=tmp_path)
-    write_active_session_id(bridge_dir, "conv_bypass")
+    bridge_dir = prepare_bridge_dir("conv_question", bridge_id="b2", workspace=tmp_path)
+    write_active_session_id(bridge_dir, "conv_question")
     build_hook_settings(
         bridge_dir,
         ap_server_url="http://127.0.0.1:8787",
         ap_auth_headers={"Authorization": "Bearer token"},
     )
-    payload = {
+    payload: dict[str, object] = {
         "hook_event_name": "PreToolUse",
         "tool_name": "AskUserQuestion",
-        "tool_input": {
-            "questions": [{"question": "Pick one", "options": [{"label": "Option A"}]}]
-        },
-        "permission_mode": "bypassPermissions",
+        "tool_input": {"questions": questions},
     }
+    if permission_mode is not None:
+        payload["permission_mode"] = permission_mode
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
 
     exit_code = claude_native_hook.main(["ask-user-question", "--bridge-dir", str(bridge_dir)])
@@ -1623,7 +1636,7 @@ def test_ask_user_question_hook_posts_and_returns_pre_tool_use_output_in_bypass_
     assert exit_code == 0
     # Omnigent must be called with the active session's URL.
     assert posted["url"] == (
-        "http://127.0.0.1:8787/v1/sessions/conv_bypass/hooks/permission-request"
+        "http://127.0.0.1:8787/v1/sessions/conv_question/hooks/permission-request"
     )
     # The full PreToolUse payload (including permission_mode) is
     # forwarded verbatim, plus the minted re-attach id.
@@ -1646,6 +1659,7 @@ def test_ask_user_question_hook_posts_and_returns_pre_tool_use_output_in_bypass_
         "User answers were not propagated in updatedInput — Claude will fall back "
         "to its TUI picker and ignore the web form selection"
     )
+    assert hs["updatedInput"]["questions"] == questions
     assert captured.err == ""
 
 
