@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 RUNNER_TUNNEL_MAX_MESSAGE_BYTES = 100 * 1024 * 1024
 
 # Protocol-level WebSocket keepalive budget for the runner<->server tunnel —
@@ -26,3 +28,33 @@ RUNNER_TUNNEL_MAX_MESSAGE_BYTES = 100 * 1024 * 1024
 # the app-level budget fails CI.
 TUNNEL_KEEPALIVE_PING_INTERVAL_S = 30.0
 TUNNEL_KEEPALIVE_PING_TIMEOUT_S = 90.0
+
+
+class UvicornTunnelKwargs(TypedDict):
+    """The uvicorn settings that terminate omnigent tunnels; see :func:`uvicorn_tunnel_kwargs`."""
+
+    ws_max_size: int
+    ws_ping_interval: float
+    ws_ping_timeout: float
+
+
+def uvicorn_tunnel_kwargs() -> UvicornTunnelKwargs:
+    """
+    Return the uvicorn settings a server needs to terminate omnigent tunnels.
+
+    ``omnigent server`` applies these itself; a launcher that serves
+    :func:`omnigent.server.app.create_app` under its own ``uvicorn.run`` (the
+    Databricks App entrypoint, the MAS launcher) must spread them too, or
+    uvicorn's defaults apply: a 16 MiB frame cap and a 20 s/20 s keepalive that
+    closes a busy-but-healthy tunnel with ``1011 keepalive ping timeout`` after
+    a ~20 s client-path stall, while the runner and host tolerate 90 s.
+
+    :returns: Keyword arguments for ``uvicorn.run`` / ``uvicorn.Config``, e.g.
+        ``{"ws_max_size": 104857600, "ws_ping_interval": 30.0,
+        "ws_ping_timeout": 90.0}``.
+    """
+    return UvicornTunnelKwargs(
+        ws_max_size=RUNNER_TUNNEL_MAX_MESSAGE_BYTES,
+        ws_ping_interval=TUNNEL_KEEPALIVE_PING_INTERVAL_S,
+        ws_ping_timeout=TUNNEL_KEEPALIVE_PING_TIMEOUT_S,
+    )

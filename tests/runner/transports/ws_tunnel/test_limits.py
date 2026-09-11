@@ -11,10 +11,13 @@ correctness change. See the comment on ``uvicorn.run`` in ``omnigent/cli.py``.
 
 from __future__ import annotations
 
+import uvicorn
+
 from omnigent.runner.transports.ws_tunnel.limits import (
     RUNNER_TUNNEL_MAX_MESSAGE_BYTES,
     TUNNEL_KEEPALIVE_PING_INTERVAL_S,
     TUNNEL_KEEPALIVE_PING_TIMEOUT_S,
+    uvicorn_tunnel_kwargs,
 )
 
 
@@ -57,3 +60,21 @@ def test_keepalive_not_stricter_than_app_level_budget() -> None:
             "would drop a busy-but-healthy tunnel with 1011 before the app-level "
             "keepalive fires (issue #1116)."
         )
+
+
+def test_uvicorn_tunnel_kwargs_carry_the_tunnel_budget_into_uvicorn() -> None:
+    """The kwargs hosted launchers spread into ``uvicorn.run`` carry every tunnel setting.
+
+    Built into a real ``uvicorn.Config`` so a renamed uvicorn option fails here
+    instead of at a deploy's first boot.
+    """
+    kwargs = uvicorn_tunnel_kwargs()
+    assert kwargs == {
+        "ws_max_size": RUNNER_TUNNEL_MAX_MESSAGE_BYTES,
+        "ws_ping_interval": TUNNEL_KEEPALIVE_PING_INTERVAL_S,
+        "ws_ping_timeout": TUNNEL_KEEPALIVE_PING_TIMEOUT_S,
+    }
+    config = uvicorn.Config("omnigent.server.app:create_app", factory=True, **kwargs)
+    assert config.ws_max_size == RUNNER_TUNNEL_MAX_MESSAGE_BYTES
+    assert config.ws_ping_interval == TUNNEL_KEEPALIVE_PING_INTERVAL_S
+    assert config.ws_ping_timeout == TUNNEL_KEEPALIVE_PING_TIMEOUT_S
